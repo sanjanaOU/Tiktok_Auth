@@ -2,16 +2,25 @@ from flask import Flask, redirect, request, session, jsonify
 import os
 import requests
 from urllib.parse import urlencode
+from dotenv import load_dotenv
 
-app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY")
+# ✅ Load environment variables FIRST
+load_dotenv()
 
+# ✅ Read from .env
 CLIENT_KEY = os.getenv("TIKTOK_CLIENT_KEY")
 CLIENT_SECRET = os.getenv("TIKTOK_CLIENT_SECRET")
-REDIRECT_URI = "https://tiktok-auth-1.onrender.com/callback"
+REDIRECT_URI = os.getenv("REDIRECT_URI")
+FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY")
 
+# ✅ Flask App Config
+app = Flask(__name__)
+app.secret_key = FLASK_SECRET_KEY
+
+# ✅ TikTok OAuth URLs
 AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
 TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
+PROFILE_URL = "https://open.tiktokapis.com/v2/user/info/"
 
 @app.route("/")
 def index():
@@ -20,7 +29,7 @@ def index():
         "scope": "user.info.basic",
         "response_type": "code",
         "redirect_uri": REDIRECT_URI,
-        "state": "secure_random_state_123",
+        "state": "secure_random_state_123",  # you can randomize this later
     }
     auth_link = f"{AUTH_URL}?{urlencode(auth_params)}"
     return f'<a href="{auth_link}">Login with TikTok</a>'
@@ -45,6 +54,7 @@ def callback():
         "redirect_uri": REDIRECT_URI
     }
 
+    # 🚨 Must send as x-www-form-urlencoded, not JSON
     response = requests.post(
         TOKEN_URL,
         headers=headers,
@@ -55,7 +65,10 @@ def callback():
 
     if "access_token" in token_data:
         session["access_token"] = token_data["access_token"]
-        return f"✅ Access Token: {token_data['access_token']}<br><br><a href='/profile'>Get Profile Info</a>"
+        return f"""
+            ✅ Access Token: {token_data['access_token']}<br><br>
+            <a href="/profile">Get Profile Info</a>
+        """
     else:
         return f"❌ Token Error: {token_data}"
 
@@ -65,12 +78,11 @@ def profile():
     if not access_token:
         return redirect("/")
 
-    profile_url = "https://open.tiktokapis.com/v2/user/info/"
     headers = {
         "Authorization": f"Bearer {access_token}"
     }
 
-    response = requests.get(profile_url, headers=headers)
+    response = requests.get(PROFILE_URL, headers=headers)
     return jsonify(response.json())
 
 if __name__ == "__main__":
