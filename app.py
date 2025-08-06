@@ -1,52 +1,77 @@
-# ✅ TikTok OAuth Flask App
-
-from flask import Flask, redirect, request, jsonify
-import requests
+from flask import Flask, redirect, request, session, jsonify
 import os
+import requests
+from urllib.parse import urlencode
 
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY")
 
-# TikTok credentials from Developer Console
-CLIENT_KEY = "sbaw9w8f6124vl12yb"  # replace with your actual
-CLIENT_SECRET = "RSidfgGUudLNdkD0R9iqGlZvdniC3x9y"  # replace with yours
-REDIRECT_URI = "https://your-app-name.onrender.com/callback"  # set this after deploying
+CLIENT_KEY = os.getenv("TIKTOK_CLIENT_KEY")
+CLIENT_SECRET = os.getenv("TIKTOK_CLIENT_SECRET")
+REDIRECT_URI = "https://tiktok-auth-1.onrender.com/callback"
 
-SCOPES = "user.info.basic video.publish"
+AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
+TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
 
 @app.route("/")
-def home():
-    return '<a href="/login">Login with TikTok</a>'
-
-@app.route("/login")
-def login():
-    oauth_url = (
-        f"https://www.tiktok.com/v2/auth/authorize/?"
-        f"client_key={CLIENT_KEY}"
-        f"&response_type=code"
-        f"&scope={SCOPES.replace(' ', '%20')}"
-        f"&redirect_uri={REDIRECT_URI.replace(':', '%3A').replace('/', '%2F')}"
-        f"&state=test123"
-    )
-    return redirect(oauth_url)
+def index():
+    auth_params = {
+        "client_key": CLIENT_KEY,
+        "scope": "user.info.basic",
+        "response_type": "code",
+        "redirect_uri": REDIRECT_URI,
+        "state": "secure_random_state_123",
+    }
+    auth_link = f"{AUTH_URL}?{urlencode(auth_params)}"
+    return f'<a href="{auth_link}">Login with TikTok</a>'
 
 @app.route("/callback")
 def callback():
     code = request.args.get("code")
-    if not code:
-        return "Missing code", 400
+    state = request.args.get("state")
 
-    token_url = "https://open.tiktokapis.com/v2/oauth/token/"
-    data = {
+    if not code:
+        return "Authorization failed. No code received."
+
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+
+    payload = {
         "client_key": CLIENT_KEY,
         "client_secret": CLIENT_SECRET,
         "code": code,
         "grant_type": "authorization_code",
         "redirect_uri": REDIRECT_URI
     }
-    headers = {"Content-Type": "application/json"}
-    response = requests.post(token_url, json=data, headers=headers)
 
+    response = requests.post(
+        TOKEN_URL,
+        headers=headers,
+        data=urlencode(payload)
+    )
+
+    token_data = response.json()
+
+    if "access_token" in token_data:
+        session["access_token"] = token_data["access_token"]
+        return f"✅ Access Token: {token_data['access_token']}<br><br><a href='/profile'>Get Profile Info</a>"
+    else:
+        return f"❌ Token Error: {token_data}"
+
+@app.route("/profile")
+def profile():
+    access_token = session.get("access_token")
+    if not access_token:
+        return redirect("/")
+
+    profile_url = "https://open.tiktokapis.com/v2/user/info/"
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    response = requests.get(profile_url, headers=headers)
     return jsonify(response.json())
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=5051)
